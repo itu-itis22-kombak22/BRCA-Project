@@ -152,6 +152,10 @@ h1 {
     background: #0A0D12;
     border-right: 1px solid #21262D;
 }
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"] {
+    display: none !important;
+}
 
 .footnote {
     color: #6E7681;
@@ -252,7 +256,7 @@ def main() -> None:
         page_title="BRCA Tumor Analysis",
         page_icon=None,
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
