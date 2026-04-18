@@ -34,7 +34,7 @@ MODEL_META = {
     "resnet18_breakhis.pth": {
         "label": "ResNet-18 / BreaKHis",
         "domain": "primary breast tissue",
-        "val_auc": "—",
+        "val_auc": "0.793",
     },
 }
 
@@ -308,10 +308,11 @@ def main() -> None:
         )
         st.markdown(
             "<div class='footnote'>"
-            "The classifier was trained on lymph-node metastasis patches "
-            "(PatchCamelyon). Absolute probabilities on primary breast "
-            "tissue may be systematically low; spatial structure on the "
-            "heatmap remains informative and is auto-scaled for display."
+            "The PCam checkpoint was trained on lymph-node metastasis "
+            "patches; on primary breast tissue its absolute probabilities "
+            "are compressed near zero. The BreaKHis checkpoint is domain-"
+            "matched to primary breast and returns probabilities on the "
+            "expected 0–1 scale. Pick whichever fits your input."
             "</div>",
             unsafe_allow_html=True,
         )
