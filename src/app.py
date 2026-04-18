@@ -22,8 +22,27 @@ from src.report import generate as generate_report
 from src.upload_pipeline import extract_images, score_image
 
 
-DEFAULT_WEIGHTS = "models/resnet18_pcam.pth"
+MODELS_DIR = Path("models")
 ACCEPTED_SUFFIXES = ["png", "jpg", "jpeg", "tif", "tiff", "bmp", "zip", "pdf"]
+
+MODEL_META = {
+    "resnet18_pcam.pth": {
+        "label": "ResNet-18 / PCam",
+        "domain": "lymph-node metastasis",
+        "val_auc": "0.978",
+    },
+    "resnet18_breakhis.pth": {
+        "label": "ResNet-18 / BreaKHis",
+        "domain": "primary breast tissue",
+        "val_auc": "—",
+    },
+}
+
+
+def _list_weights() -> list[Path]:
+    if not MODELS_DIR.exists():
+        return []
+    return sorted(MODELS_DIR.glob("*.pth"))
 
 
 CUSTOM_CSS = """
@@ -156,21 +175,25 @@ def _load_cached_model(weights_path: str):
     return model, device
 
 
-def _header(device) -> None:
+def _header(device, weights_name: str) -> None:
     st.markdown(
         "<h1>BRCA Tumor Probability Analysis</h1>"
         "<div class='subtitle'>"
         "Patch-level inference on histopathology images using a ResNet-18 "
-        "fine-tuned on PatchCamelyon. Upload a single image, a ZIP of "
-        "images, or a PDF; receive per-patch tumor probabilities, a "
-        "heatmap overlay and a concise clinical-style summary."
+        "fine-tuned for breast cancer classification. Upload a single "
+        "image, a ZIP of images, or a PDF; receive per-patch tumor "
+        "probabilities, a heatmap overlay and a concise clinical-style "
+        "summary."
         "</div>",
         unsafe_allow_html=True,
     )
+    meta = MODEL_META.get(weights_name, {})
+    model_label = meta.get("label", weights_name)
+    auc = meta.get("val_auc", "—")
     st.markdown(
         f"<span class='badge primary'>device · {device}</span>"
-        f"<span class='badge'>model · resnet18_pcam</span>"
-        f"<span class='badge'>val AUC 0.978</span>",
+        f"<span class='badge'>model · {model_label}</span>"
+        f"<span class='badge'>val AUC · {auc}</span>",
         unsafe_allow_html=True,
     )
     st.write("")
@@ -224,9 +247,32 @@ def main() -> None:
 
     with st.sidebar:
         st.markdown("### Configuration")
-        weights_path = st.text_input(
-            "Model weights", value=DEFAULT_WEIGHTS,
-            label_visibility="visible")
+
+        available = _list_weights()
+        if available:
+            names = [p.name for p in available]
+            default_idx = next(
+                (i for i, n in enumerate(names) if "breakhis" in n.lower()),
+                0,
+            )
+            choice = st.selectbox(
+                "Model",
+                names,
+                index=default_idx,
+                format_func=lambda n: MODEL_META.get(n, {}).get("label", n),
+            )
+            weights_path = str(MODELS_DIR / choice)
+            meta = MODEL_META.get(choice, {})
+            if meta:
+                st.caption(
+                    f"domain · {meta.get('domain', '—')}  "
+                    f"·  val AUC · {meta.get('val_auc', '—')}"
+                )
+        else:
+            weights_path = st.text_input(
+                "Model weights (models/ klasörü boş)",
+                value="models/resnet18_pcam.pth")
+
         bg_threshold = st.slider(
             "Background threshold",
             min_value=180, max_value=240, value=220, step=5,
@@ -244,7 +290,7 @@ def main() -> None:
 
     model, device = _load_cached_model(weights_path)
 
-    _header(device)
+    _header(device, Path(weights_path).name)
 
     uploaded = st.file_uploader(
         "Upload image",

@@ -55,13 +55,30 @@ python -c "import openslide; print('openslide OK')"
 
 ## Phase 1 — Training on Colab
 
-1. Open `colab/train_pcam.ipynb` in Google Colab.
-2. `Runtime → Change runtime type → T4 GPU`.
-3. Accept the Kaggle competition rules (once) at
+Two trainers are provided. Both live under `colab/`, both target the
+free T4 GPU, both produce a 43 MB ResNet-18 checkpoint in the same
+architecture so any of them is a drop-in replacement in the inference
+pipeline. Train either or both — the UI has a model selector.
+
+### Option A — `train_pcam.ipynb` (PatchCamelyon, lymph-node metastasis)
+
+1. Accept the Kaggle competition rules once at
    <https://www.kaggle.com/c/histopathologic-cancer-detection/rules>.
-4. Run the 4 cells in order. Upload `kaggle.json` when prompted.
-5. Training takes ~1–2 hours. After the final cell, `resnet18_pcam.pth`
-   downloads to your machine — drop it into `models/`.
+2. Open the notebook in Colab, set `Runtime → T4 GPU`, run 4 cells.
+3. ~15–20 min training, target val AUC ≈ 0.97.
+4. Download `resnet18_pcam.pth` into `models/`.
+
+### Option B — `train_breakhis.ipynb` (BreaKHis, primary breast tissue)
+
+1. No rule-accept step; it's a public Kaggle dataset.
+2. Open the notebook in Colab, set `Runtime → T4 GPU`, run 4 cells.
+3. ~30–45 min training on the 40× tier, target val AUC ≈ 0.90.
+4. Download `resnet18_breakhis.pth` into `models/`.
+
+BreaKHis is **domain-matched** to primary breast slides (the TCGA-BRCA
+use case); PCam is trained on lymph-node metastases. On a primary-tumour
+slide the BreaKHis checkpoint generally yields much higher absolute
+probabilities, while PCam's heatmap gives spatial structure only.
 
 ## Phase 2 — Heatmap demo (MacBook)
 
