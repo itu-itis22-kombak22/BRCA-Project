@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy.ndimage import gaussian_filter
 
 from src.inference import PCAM_PATCH, predict_batch
@@ -87,7 +87,8 @@ def score_image(model,
                 patch_size: int = PCAM_PATCH,
                 stride: int | None = None,
                 bg_threshold: float = 220.0,
-                batch_size: int = 128) -> dict:
+                batch_size: int = 128,
+                tumor_threshold: float = 0.5) -> dict:
     """Tile an image, score every tissue-rich patch, return stats + grid.
 
     Tiles smaller than ``patch_size`` are center-cropped / padded and
@@ -173,7 +174,9 @@ def score_image(model,
                  "suspicious_ratio": 0.0,
                  "relative_ratio": 0.0, "relative_threshold": 0.0}
 
-    overlay = _render_overlay(image, grid, mask)
+    overlay = _render_overlay(image, grid, mask,
+                              patch_size=patch_size, stride=stride,
+                              tumor_threshold=tumor_threshold)
 
     return {
         "mode": "grid",
@@ -186,61 +189,48 @@ def score_image(model,
     }
 
 
+TUMOR_RGB = (230, 60, 60)
+NORMAL_RGB = (65, 130, 235)
+
+
 def _render_overlay(image: Image.Image,
                     grid: np.ndarray,
                     mask: np.ndarray,
-                    sigma: float = 1.0,
-                    alpha: float = 0.45) -> Image.Image:
-    """Render a heatmap on top of the image with a matplotlib colorbar.
+                    patch_size: int,
+                    stride: int,
+                    tumor_threshold: float = 0.5) -> Image.Image:
+    """Draw per-patch coloured boxes on the image.
 
-    ``jet`` colormap: dark blue → cyan → green → yellow → **red**.
-    Red means high predicted P(tumor). Auto-scales to the 99.5th
-    percentile of tissue-patch probabilities, because absolute values
-    under a domain-shifted PCam model can be systematically low.
+    * **Red box** — patch classified as tumor (P ≥ ``tumor_threshold``).
+    * **Blue box** — patch is tissue but classified as non-tumor
+      (P < ``tumor_threshold``).
+    * **No box** — background/whitespace patch (filtered out).
+
+    Boxes use a translucent fill and a fully-opaque border so the
+    underlying histology stays visible.
     """
-    import io as _io
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    base = image.convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
 
-    w, h = image.size
+    border_w = max(1, patch_size // 32)  # 3 px at patch_size=96
+    tumor_fill = TUMOR_RGB + (70,)
+    tumor_border = TUMOR_RGB + (255,)
+    normal_fill = NORMAL_RGB + (30,)
+    normal_border = NORMAL_RGB + (180,)
 
-    tissue = grid[mask]
-    vmax = float(np.percentile(tissue, 99.5)) if tissue.size else 1.0
-    vmax = max(vmax, 1e-3)
+    n_rows, n_cols = grid.shape
+    for r in range(n_rows):
+        for c in range(n_cols):
+            if not mask[r, c]:
+                continue
+            x0, y0 = c * stride, r * stride
+            box = (x0, y0, x0 + patch_size - 1, y0 + patch_size - 1)
+            if grid[r, c] >= tumor_threshold:
+                draw.rectangle(box, fill=tumor_fill,
+                               outline=tumor_border, width=border_w)
+            else:
+                draw.rectangle(box, fill=normal_fill,
+                               outline=normal_border, width=border_w)
 
-    smoothed = np.where(mask, grid, 0.0)
-    if sigma > 0:
-        smoothed = gaussian_filter(smoothed, sigma=sigma)
-
-    fig_w_in = 8.0
-    fig_h_in = fig_w_in * h / w
-    fig = plt.figure(figsize=(fig_w_in + 1.2, fig_h_in),
-                     facecolor="#0D1117")
-    gs = fig.add_gridspec(1, 2, width_ratios=[fig_w_in, 0.5],
-                          wspace=0.05)
-
-    ax = fig.add_subplot(gs[0, 0])
-    ax.imshow(image)
-    heat = np.ma.array(smoothed, mask=~mask)
-    ax.imshow(heat, extent=(0, w, h, 0), cmap="jet",
-              vmin=0.0, vmax=vmax, alpha=alpha,
-              interpolation="bilinear")
-    ax.set_axis_off()
-
-    cax = fig.add_subplot(gs[0, 1])
-    sm = plt.cm.ScalarMappable(cmap="jet",
-                               norm=plt.Normalize(0, vmax))
-    sm.set_array([])
-    cbar = fig.colorbar(sm, cax=cax)
-    cbar.set_label("P(tumor) — red = high, blue = low",
-                   color="#E6EDF3", fontsize=9)
-    cbar.ax.tick_params(colors="#8B949E", labelsize=8)
-    cbar.outline.set_edgecolor("#21262D")
-
-    buf = _io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight",
-                pad_inches=0.05, facecolor="#0D1117", dpi=130)
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf).convert("RGB")
+    return Image.alpha_composite(base, overlay).convert("RGB")

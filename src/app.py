@@ -209,8 +209,19 @@ def _render_result(label: str, stats: dict, image, dt: float) -> None:
         st.caption("Source image")
         st.image(image, use_container_width=True)
     with col_overlay:
-        st.caption("P(tumor) heatmap")
+        st.caption("Patch-level predictions")
         st.image(stats["overlay"], use_container_width=True)
+        st.markdown(
+            "<div style='font-size:0.82rem;color:#8B949E;"
+            "margin-top:-0.4rem;'>"
+            "<span style='color:#E64040;font-weight:600;'>■</span> tumor-predicted"
+            "&nbsp;&nbsp;&nbsp;"
+            "<span style='color:#4182EB;font-weight:600;'>■</span> non-tumor tissue"
+            "&nbsp;&nbsp;&nbsp;"
+            "<span style='color:#6E7681;'>□</span> background (skipped)"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     st.write("")
 
@@ -248,30 +259,34 @@ def main() -> None:
     with st.sidebar:
         st.markdown("### Configuration")
 
-        available = _list_weights()
-        if available:
-            names = [p.name for p in available]
-            default_idx = next(
-                (i for i, n in enumerate(names) if "breakhis" in n.lower()),
-                0,
+        tissue_choice = st.radio(
+            "Tissue type",
+            options=["Primary breast", "Lymph node"],
+            index=0,
+            help=("Primary breast → BreaKHis checkpoint.  "
+                  "Lymph node → PCam checkpoint. Pick whichever matches "
+                  "the image you are about to upload."),
+        )
+        tissue_to_weights = {
+            "Primary breast": "resnet18_breakhis.pth",
+            "Lymph node": "resnet18_pcam.pth",
+        }
+        weights_path = str(MODELS_DIR / tissue_to_weights[tissue_choice])
+        meta = MODEL_META.get(Path(weights_path).name, {})
+        if meta:
+            st.caption(
+                f"domain · {meta.get('domain', '—')}  "
+                f"·  val AUC · {meta.get('val_auc', '—')}"
             )
-            choice = st.selectbox(
-                "Model",
-                names,
-                index=default_idx,
-                format_func=lambda n: MODEL_META.get(n, {}).get("label", n),
-            )
-            weights_path = str(MODELS_DIR / choice)
-            meta = MODEL_META.get(choice, {})
-            if meta:
-                st.caption(
-                    f"domain · {meta.get('domain', '—')}  "
-                    f"·  val AUC · {meta.get('val_auc', '—')}"
-                )
-        else:
-            weights_path = st.text_input(
-                "Model weights (models/ klasörü boş)",
-                value="models/resnet18_pcam.pth")
+
+        tumor_threshold = st.slider(
+            "Tumor threshold",
+            min_value=0.05, max_value=0.95, value=0.50, step=0.05,
+            help=("P(tumor) eşiği. Eşiğin üstündeki parçalar kırmızı, "
+                  "altındakiler mavi kutucukla işaretlenir. "
+                  "Lenf nodu modelinde primer meme dokusu için 0,10-0,20 "
+                  "denemek yararlı olabilir."),
+        )
 
         bg_threshold = st.slider(
             "Background threshold",
@@ -341,7 +356,8 @@ def main() -> None:
             t0 = time.time()
             stats = score_image(model, img, device=device,
                                 stride=stride,
-                                bg_threshold=float(bg_threshold))
+                                bg_threshold=float(bg_threshold),
+                                tumor_threshold=float(tumor_threshold))
             dt = time.time() - t0
         _render_result(label, stats, img, dt)
 
