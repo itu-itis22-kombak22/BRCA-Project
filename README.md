@@ -71,6 +71,15 @@ After `models/resnet18_pcam.pth` is in place:
 python -m src.heatmap --slide data/<your_slide>.svs --out outputs/
 ```
 
+### Streamlit UI (drag & drop)
+
+```bash
+streamlit run src/app.py
+```
+
+The app accepts PNG / JPG / TIF / ZIP (of images) / PDF and returns a
+heatmap overlay plus a short Turkish 2–3 sentence summary.
+
 ## Notes
 
 - **Magnification matters.** PCam patches are ≈0.972 µm/px (~10×); TCGA-BRCA
