@@ -1,4 +1,13 @@
-"""Rule-based 2-3 sentence Turkish report from a scored image."""
+"""Rule-based 2-3 sentence Turkish report from a scored image.
+
+Two-tier detection:
+  * **Absolute**: P(tumor) >= 0.5 over tissue patches → "şüpheli".
+  * **Relative**: patches notably above the image's own median → even if
+    absolute values are compressed (e.g. domain-shifted PCam model on
+    primary breast tissue), we flag the top-tier regions so the user
+    does not conclude "no tumor at all" when spatial heterogeneity is
+    clearly present.
+"""
 
 from __future__ import annotations
 
@@ -8,16 +17,17 @@ def _fmt_pct(p: float) -> str:
 
 
 def generate(stats: dict, image_name: str | None = None) -> str:
-    """Return a short Turkish report from ``score_image`` output."""
     mode = stats.get("mode", "grid")
     n_tissue = int(stats.get("n_tissue", 0))
     mean_p = float(stats.get("mean", 0.0))
     max_p = float(stats.get("max", 0.0))
-    ratio = float(stats.get("suspicious_ratio", 0.0))
+    abs_ratio = float(stats.get("suspicious_ratio", 0.0))
+    rel_ratio = float(stats.get("relative_ratio", 0.0))
+    rel_thresh = float(stats.get("relative_threshold", 0.0))
 
     if mode == "single":
         if max_p >= 0.5:
-            verdict = "**şüpheli (kanser lehine)** olarak işaretlendi"
+            verdict = "**şüpheli (tümör lehine)** olarak işaretlendi"
         elif max_p >= 0.3:
             verdict = "**sınırda** bir sonuç verdi"
         else:
@@ -36,39 +46,49 @@ def generate(stats: dict, image_name: str | None = None) -> str:
             "Lütfen doku içeren bir görsel ile tekrar deneyin."
         )
 
-    if ratio >= 0.3:
-        severity = (
-            f"Doku parçalarının {_fmt_pct(ratio)}'i şüpheli sınıflandırıldı — "
-            f"yaygın şüpheli alanlar gözleniyor"
+    header = (
+        f"Toplam {n_tissue} doku parçası değerlendirildi "
+        f"(ortalama {_fmt_pct(mean_p)}, en yüksek {_fmt_pct(max_p)})."
+    )
+
+    # Tier 1: absolute confidence is high somewhere
+    if abs_ratio >= 0.3:
+        body = (
+            f"Doku parçalarının {_fmt_pct(abs_ratio)}'i 0,50 eşiğinin "
+            f"üstünde şüpheli sınıflandırıldı; yaygın şüpheli alanlar "
+            f"mevcut, uzman patolog değerlendirmesi güçlü biçimde önerilir."
         )
-        recommendation = "uzman patolog değerlendirmesi güçlü biçimde önerilir."
-    elif ratio >= 0.1:
-        severity = (
-            f"Doku parçalarının {_fmt_pct(ratio)}'i şüpheli işaretlendi — "
-            f"odaksal (bölgesel) şüpheli alanlar mevcut"
+    elif abs_ratio >= 0.1:
+        body = (
+            f"Doku parçalarının {_fmt_pct(abs_ratio)}'i 0,50 eşiğinin "
+            f"üstünde şüpheli işaretlendi; odaksal (bölgesel) şüpheli "
+            f"alanlar mevcut, detaylı inceleme önerilir."
         )
-        recommendation = "detaylı inceleme önerilir."
-    elif ratio > 0.0 or max_p >= 0.4:
-        severity = (
-            f"Şüpheli sinyal sınırlı ({_fmt_pct(ratio)} şüpheli parça, "
-            f"en yüksek güven {_fmt_pct(max_p)})"
+    elif abs_ratio > 0.0:
+        body = (
+            f"Sınırlı düzeyde şüpheli sinyal var ({_fmt_pct(abs_ratio)} "
+            f"parça 0,50 eşiği üstünde); bulgu küçük ve izole, "
+            f"doğrulanması için patolog kontrolü yararlı olabilir."
         )
-        recommendation = (
-            "bulgu küçük ve izole; ancak sinyalin gerçekliğinden emin olmak "
-            "için kontrol edilmesi iyi olur."
+    # Tier 2: absolute values all low but relative hotspots exist
+    elif (rel_ratio >= 0.02 and max_p >= 0.08) or max_p >= 0.15:
+        body = (
+            f"Mutlak olasılıklar düşük kaldı, ancak görsel içinde görece "
+            f"öne çıkan {_fmt_pct(rel_ratio)} oranında bölge tespit edildi "
+            f"(maks {_fmt_pct(max_p)}); ısı haritasındaki sıcak noktalar "
+            f"patolog tarafından doğrulanmaya değer."
         )
     else:
-        severity = (
-            f"Belirgin tümör sinyali tespit edilmedi "
-            f"(ortalama {_fmt_pct(mean_p)}, en yüksek {_fmt_pct(max_p)})"
-        )
-        recommendation = (
-            "görüntü büyük oranda normal görünüyor; yine de klinik bağlam "
-            "mutlaka patolog tarafından değerlendirilmelidir."
+        body = (
+            "Bu görüntüde modelin eşik üstü bir tümör sinyali bulmadığı "
+            "görülmektedir; ancak sınıflandırıcı PCam (lenf nodu metastazı) "
+            "dağılımında eğitildiği için primer meme dokusunda skorlar "
+            "sistematik olarak düşük kalabilir ve negatif sonuç tek başına "
+            "tümör yokluğu anlamına gelmez."
         )
 
-    header = (
-        f"Görsel analizi tamamlandı: toplam {n_tissue} doku parçası "
-        f"değerlendirildi."
+    disclaimer = (
+        "Bu çıktı tanı değil karar-destek amaçlıdır; "
+        "kesin değerlendirme patoloji uzmanı tarafından yapılmalıdır."
     )
-    return f"{header} {severity}; {recommendation}"
+    return f"{header} {body} {disclaimer}"

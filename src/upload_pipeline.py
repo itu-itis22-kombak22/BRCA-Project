@@ -154,13 +154,24 @@ def score_image(model,
     tissue = grid[mask]
     n_tissue = int(tissue.size)
     if n_tissue:
+        median = float(np.median(tissue))
+        # Relative detection: patches whose probability is notably above
+        # the image's own median. Robust to the domain-shifted-model
+        # tendency to push all absolute probabilities toward zero.
+        rel_thresh = max(median + 0.02, median * 3.0, 0.05)
+        rel_ratio = float((tissue >= rel_thresh).mean())
         stats = {
             "mean": float(tissue.mean()),
+            "median": median,
             "max": float(tissue.max()),
             "suspicious_ratio": float((tissue >= 0.5).mean()),
+            "relative_ratio": rel_ratio,
+            "relative_threshold": rel_thresh,
         }
     else:
-        stats = {"mean": 0.0, "max": 0.0, "suspicious_ratio": 0.0}
+        stats = {"mean": 0.0, "median": 0.0, "max": 0.0,
+                 "suspicious_ratio": 0.0,
+                 "relative_ratio": 0.0, "relative_threshold": 0.0}
 
     overlay = _render_overlay(image, grid, mask)
 
@@ -179,12 +190,20 @@ def _render_overlay(image: Image.Image,
                     grid: np.ndarray,
                     mask: np.ndarray,
                     sigma: float = 1.0,
-                    alpha: int = 115) -> Image.Image:
-    """Alpha-blend a jet-colored P(tumor) heatmap on top of the image."""
-    import matplotlib.cm as cm
+                    alpha: float = 0.45) -> Image.Image:
+    """Render a heatmap on top of the image with a matplotlib colorbar.
 
-    base = image.convert("RGBA")
-    w, h = base.size
+    ``jet`` colormap: dark blue → cyan → green → yellow → **red**.
+    Red means high predicted P(tumor). Auto-scales to the 99.5th
+    percentile of tissue-patch probabilities, because absolute values
+    under a domain-shifted PCam model can be systematically low.
+    """
+    import io as _io
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    w, h = image.size
 
     tissue = grid[mask]
     vmax = float(np.percentile(tissue, 99.5)) if tissue.size else 1.0
@@ -194,11 +213,34 @@ def _render_overlay(image: Image.Image,
     if sigma > 0:
         smoothed = gaussian_filter(smoothed, sigma=sigma)
 
-    normalised = np.clip(smoothed / vmax, 0.0, 1.0)
-    jet = cm.get_cmap("jet")
-    rgba = (jet(normalised) * 255).astype(np.uint8)
-    rgba[..., 3] = np.where(mask, alpha, 0).astype(np.uint8)
+    fig_w_in = 8.0
+    fig_h_in = fig_w_in * h / w
+    fig = plt.figure(figsize=(fig_w_in + 1.2, fig_h_in),
+                     facecolor="#0D1117")
+    gs = fig.add_gridspec(1, 2, width_ratios=[fig_w_in, 0.5],
+                          wspace=0.05)
 
-    heat = Image.fromarray(rgba, mode="RGBA").resize(
-        (w, h), Image.NEAREST)
-    return Image.alpha_composite(base, heat).convert("RGB")
+    ax = fig.add_subplot(gs[0, 0])
+    ax.imshow(image)
+    heat = np.ma.array(smoothed, mask=~mask)
+    ax.imshow(heat, extent=(0, w, h, 0), cmap="jet",
+              vmin=0.0, vmax=vmax, alpha=alpha,
+              interpolation="bilinear")
+    ax.set_axis_off()
+
+    cax = fig.add_subplot(gs[0, 1])
+    sm = plt.cm.ScalarMappable(cmap="jet",
+                               norm=plt.Normalize(0, vmax))
+    sm.set_array([])
+    cbar = fig.colorbar(sm, cax=cax)
+    cbar.set_label("P(tumor) — red = high, blue = low",
+                   color="#E6EDF3", fontsize=9)
+    cbar.ax.tick_params(colors="#8B949E", labelsize=8)
+    cbar.outline.set_edgecolor("#21262D")
+
+    buf = _io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight",
+                pad_inches=0.05, facecolor="#0D1117", dpi=130)
+    plt.close(fig)
+    buf.seek(0)
+    return Image.open(buf).convert("RGB")

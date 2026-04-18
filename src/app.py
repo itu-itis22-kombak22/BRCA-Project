@@ -191,14 +191,20 @@ def _render_result(label: str, stats: dict, image, dt: float) -> None:
 
     st.write("")
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Tissue patches",
               f"{stats['n_tissue']}",
               help=f"{stats['n_total']} toplam parça, arkaplan hariç")
     m2.metric("Mean P(tumor)", f"{stats['mean']:.3f}")
     m3.metric("Max P(tumor)",  f"{stats['max']:.3f}")
-    m4.metric("Suspicious ≥ 0.5",
-              f"%{100 * stats['suspicious_ratio']:.1f}".replace(".", ","))
+    m4.metric("Absolute ≥ 0.5",
+              f"%{100 * stats['suspicious_ratio']:.1f}".replace(".", ","),
+              help="0,50 mutlak eşiğini aşan parça oranı.")
+    m5.metric("Relative hotspots",
+              f"%{100 * stats.get('relative_ratio', 0.0):.1f}".replace(".", ","),
+              help=(f"Bu görüntünün kendi medyanının belirgin üstündeki "
+                    f"parçalar (eşik "
+                    f"{stats.get('relative_threshold', 0.0):.2f})."))
 
     st.markdown(
         f"<div class='report-box'>{generate_report(stats, image_name=label)}</div>",
