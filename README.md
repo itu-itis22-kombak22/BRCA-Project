@@ -33,7 +33,7 @@ brca-demo/
 │   ├── __init__.py
 │   ├── inference.py           # Phase 2 — patch prediction
 │   └── heatmap.py             # Phase 2 — WSI sliding window + overlay
-├── models/                    # gitignored — put resnet18_pcam.pth here
+├── models/                    # resnet18_pcam.pth + resnet18_breakhis.pth (repoda)
 ├── data/                      # gitignored — .svs files
 └── outputs/                   # gitignored — heatmap PNGs
 ```
@@ -53,12 +53,14 @@ python -c "import torch; print('MPS:', torch.backends.mps.is_available())"
 python -c "import openslide; print('openslide OK')"
 ```
 
-## Phase 1 — Training on Colab
+## Phase 1 — Training on Colab (opsiyonel)
 
-Two trainers are provided. Both live under `colab/`, both target the
-free T4 GPU, both produce a 43 MB ResNet-18 checkpoint in the same
-architecture so any of them is a drop-in replacement in the inference
-pipeline. Train either or both — the UI has a model selector.
+Eğitilmiş iki checkpoint repoda `models/` altında hazır — demo'yu
+çalıştırmak için yeniden eğitim gerekmiyor. Modeli sıfırdan üretmek
+isteyenler için iki trainer verilmiş: ikisi de `colab/` altında, ikisi
+de free T4 GPU'yu hedefliyor, ikisi de aynı mimaride 43 MB'lık
+ResNet-18 checkpoint'i üretiyor (drop-in replacement). UI'da model
+seçici var.
 
 ### Option A — `train_pcam.ipynb` (PatchCamelyon, lymph-node metastasis)
 
@@ -66,14 +68,14 @@ pipeline. Train either or both — the UI has a model selector.
    <https://www.kaggle.com/c/histopathologic-cancer-detection/rules>.
 2. Open the notebook in Colab, set `Runtime → T4 GPU`, run 4 cells.
 3. ~15–20 min training, target val AUC ≈ 0.97.
-4. Download `resnet18_pcam.pth` into `models/`.
+4. `resnet18_pcam.pth` dosyasını `models/` altına koy (yeniden üretmek istersen).
 
 ### Option B — `train_breakhis.ipynb` (BreaKHis, primary breast tissue)
 
 1. No rule-accept step; it's a public Kaggle dataset.
 2. Open the notebook in Colab, set `Runtime → T4 GPU`, run 4 cells.
 3. ~30–45 min training on the 40× tier, target val AUC ≈ 0.90.
-4. Download `resnet18_breakhis.pth` into `models/`.
+4. `resnet18_breakhis.pth` dosyasını `models/` altına koy (yeniden üretmek istersen).
 
 BreaKHis is **domain-matched** to primary breast slides (the TCGA-BRCA
 use case); PCam is trained on lymph-node metastases. On a primary-tumour
@@ -82,7 +84,7 @@ probabilities, while PCam's heatmap gives spatial structure only.
 
 ## Phase 2 — Heatmap demo (MacBook)
 
-After `models/resnet18_pcam.pth` is in place:
+Modeller zaten `models/` altında hazır, direkt çalıştır:
 
 ```bash
 python -m src.heatmap --slide data/<your_slide>.svs --out outputs/
