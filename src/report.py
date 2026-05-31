@@ -24,6 +24,7 @@ def generate(stats: dict, image_name: str | None = None) -> str:
     abs_ratio = float(stats.get("suspicious_ratio", 0.0))
     rel_ratio = float(stats.get("relative_ratio", 0.0))
     rel_thresh = float(stats.get("relative_threshold", 0.0))
+    mean_entropy = float(stats.get("mean_entropy", 0.0))
 
     if mode == "single":
         if max_p >= 0.5:
@@ -87,8 +88,22 @@ def generate(stats: dict, image_name: str | None = None) -> str:
             "tümör yokluğu anlamına gelmez."
         )
 
+    # Uncertainty note (appended when model is notably uncertain)
+    if mean_entropy > 0.6:
+        uncertainty_note = (
+            " Model belirsizliği yüksek (ortalama entropi "
+            f"{mean_entropy:.2f}); sonuçlar kesin değil, patolog doğrulaması "
+            "özellikle önerilir."
+        )
+    elif mean_entropy > 0.35:
+        uncertainty_note = (
+            f" Orta düzey model belirsizliği (entropi {mean_entropy:.2f})."
+        )
+    else:
+        uncertainty_note = ""
+
     disclaimer = (
         "Bu çıktı tanı değil karar-destek amaçlıdır; "
         "kesin değerlendirme patoloji uzmanı tarafından yapılmalıdır."
     )
-    return f"{header} {body} {disclaimer}"
+    return f"{header} {body}{uncertainty_note} {disclaimer}"

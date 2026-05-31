@@ -106,13 +106,20 @@ def score_image(model,
         img_sq = img_sq.resize((patch_size, patch_size), Image.LANCZOS)
         prob = float(predict_batch(model, [img_sq], device=device,
                                    batch_size=batch_size)[0])
+        eps = 1e-7
+        p_c = max(eps, min(1 - eps, prob))
+        single_entropy = float(-(p_c * np.log2(p_c) + (1 - p_c) * np.log2(1 - p_c)))
         return {
             "mode": "single",
             "n_tissue": 1,
             "n_total": 1,
             "mean": prob,
+            "median": prob,
             "max": prob,
             "suspicious_ratio": float(prob >= 0.5),
+            "relative_ratio": 0.0,
+            "relative_threshold": 0.5,
+            "mean_entropy": single_entropy,
             "grid": np.array([[prob]], dtype=np.float32),
             "mask": np.array([[True]]),
             "overlay": img_sq,
@@ -161,6 +168,17 @@ def score_image(model,
         # tendency to push all absolute probabilities toward zero.
         rel_thresh = max(median + 0.02, median * 3.0, 0.05)
         rel_ratio = float((tissue >= rel_thresh).mean())
+
+        # Uncertainty score: mean binary entropy of patch probabilities.
+        # H(p) = -p*log2(p) - (1-p)*log2(1-p), max=1 when p=0.5.
+        # High mean entropy → model is uncertain (borderline patches);
+        # low entropy → most patches are confidently tumor or non-tumor.
+        eps = 1e-7
+        p_clipped = np.clip(tissue, eps, 1 - eps)
+        entropy_per_patch = -(p_clipped * np.log2(p_clipped)
+                               + (1 - p_clipped) * np.log2(1 - p_clipped))
+        mean_entropy = float(entropy_per_patch.mean())   # 0–1
+
         stats = {
             "mean": float(tissue.mean()),
             "median": median,
@@ -168,11 +186,13 @@ def score_image(model,
             "suspicious_ratio": float((tissue >= 0.5).mean()),
             "relative_ratio": rel_ratio,
             "relative_threshold": rel_thresh,
+            "mean_entropy": mean_entropy,
         }
     else:
         stats = {"mean": 0.0, "median": 0.0, "max": 0.0,
                  "suspicious_ratio": 0.0,
-                 "relative_ratio": 0.0, "relative_threshold": 0.0}
+                 "relative_ratio": 0.0, "relative_threshold": 0.0,
+                 "mean_entropy": 0.0}
 
     overlay = _render_overlay(image, grid, mask,
                               patch_size=patch_size, stride=stride,
